@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 
-from PyQt5.QtWidgets import QWidget, QLineEdit, QPushButton, QColorDialog
+from PyQt5.QtWidgets import QWidget, QLineEdit, QPushButton
 from PyQt5.QtGui import QPainter, QPen, QColor
 from PyQt5.QtCore import Qt
 import math
@@ -17,211 +17,6 @@ import math
 main_result_width = 1500
 main_source_width = main_result_width // 3
 main_height = 300
-
-
-class Line:
-    def __init__(self, x1, y1, x2, y2, name="Line"):
-        self.x1 = x1
-        self.y1 = y1
-        self.x2 = x2
-        self.y2 = y2
-        self.name = name
-        self.count = 0
-        self.color = QColor(255, 0, 0)  # Default red
-        self.is_selected = False
-
-    def is_point_on_line(self, x, y, tolerance=10):
-        """Check if a point is on or near the line."""
-        # Calculate the distance from point to line segment
-        line_len_squared = (self.x2 - self.x1) ** 2 + (self.y2 - self.y1) ** 2
-        if line_len_squared == 0:  # Line is actually a point
-            return math.sqrt((x - self.x1) ** 2 + (y - self.y1) ** 2) <= tolerance
-
-        # Calculate projection
-        t = ((x - self.x1) * (self.x2 - self.x1) + (y - self.y1) * (self.y2 - self.y1)) / line_len_squared
-        t = max(0, min(1, t))  # Clamp t to [0,1] for line segment
-
-        # Find the closest point on line segment
-        proj_x = self.x1 + t * (self.x2 - self.x1)
-        proj_y = self.y1 + t * (self.y2 - self.y1)
-
-        # Calculate distance between point and projection
-        distance = math.sqrt((x - proj_x) ** 2 + (y - proj_y) ** 2)
-        return distance <= tolerance
-
-
-class LineDrawingWidget(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.lines = []
-        self.drawing = False
-        self.start_point = None
-        self.current_line = None
-        self.selected_line_index = -1
-        self.dragging = False
-        self.drag_point = None  # 'start' or 'end'
-
-        # Set transparent background
-        self.setAttribute(Qt.WA_TranslucentBackground, True)
-
-        # Create UI controls
-        self.line_name_input = QLineEdit(self)
-        self.line_name_input.setPlaceholderText("Line Name")
-        self.line_name_input.textChanged.connect(self.update_line_name)
-
-        self.color_button = QPushButton("Color", self)
-        self.color_button.clicked.connect(self.choose_color)
-
-        self.delete_button = QPushButton("Delete", self)
-        self.delete_button.clicked.connect(self.delete_selected_line)
-
-        # Hide controls initially
-        self.show_line_controls(False)
-
-    def show_line_controls(self, show=True):
-        """Show or hide line editing controls."""
-        if show and self.selected_line_index >= 0:
-            # Position controls
-            y_pos = self.height() - 30
-            self.line_name_input.setGeometry(10, y_pos, 100, 25)
-            self.color_button.setGeometry(120, y_pos, 50, 25)
-            self.delete_button.setGeometry(180, y_pos, 50, 25)
-
-            # Set current value
-            self.line_name_input.setText(self.lines[self.selected_line_index].name)
-
-            # Show controls
-            self.line_name_input.show()
-            self.color_button.show()
-            self.delete_button.show()
-        else:
-            self.line_name_input.hide()
-            self.color_button.hide()
-            self.delete_button.hide()
-
-    def update_line_name(self):
-        """Update the name of the selected line."""
-        if self.selected_line_index >= 0:
-            self.lines[self.selected_line_index].name = self.line_name_input.text()
-            self.update()
-
-    def choose_color(self):
-        """Open color picker dialog."""
-        if self.selected_line_index >= 0:
-            color = QColorDialog.getColor(self.lines[self.selected_line_index].color, self)
-            if color.isValid():
-                self.lines[self.selected_line_index].color = color
-                self.update()
-
-    def delete_selected_line(self):
-        """Delete the currently selected line."""
-        if self.selected_line_index >= 0:
-            self.lines.pop(self.selected_line_index)
-            self.selected_line_index = -1
-            self.show_line_controls(False)
-            self.update()
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            # Check if clicking on an existing line
-            for i, line in enumerate(self.lines):
-                if line.is_point_on_line(event.x(), event.y()):
-                    self.select_line(i)
-                    self.dragging = True
-
-                    # Determine which end to drag
-                    dist_start = math.sqrt((event.x() - line.x1) ** 2 + (event.y() - line.y1) ** 2)
-                    dist_end = math.sqrt((event.x() - line.x2) ** 2 + (event.y() - line.y2) ** 2)
-                    self.drag_point = 'start' if dist_start < dist_end else 'end'
-                    return
-
-            # Start drawing a new line
-            self.drawing = True
-            self.select_line(-1)
-            self.start_point = event.pos()
-            self.update()
-
-    def select_line(self, index):
-        """Select a line and deselect others."""
-        self.selected_line_index = index
-        for i, line in enumerate(self.lines):
-            line.is_selected = (i == index)
-        self.show_line_controls(index >= 0)
-        self.update()
-
-    def mouseMoveEvent(self, event):
-        if self.drawing:
-            # Drawing new line
-            self.current_line = (self.start_point.x(), self.start_point.y(),
-                                 event.x(), event.y())
-            self.update()
-        elif self.dragging and self.selected_line_index >= 0:
-            # Dragging existing line endpoint
-            line = self.lines[self.selected_line_index]
-            if self.drag_point == 'start':
-                line.x1 = event.x()
-                line.y1 = event.y()
-            else:
-                line.x2 = event.x()
-                line.y2 = event.y()
-            self.update()
-
-    def mouseReleaseEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            if self.drawing:
-                # Finish drawing the line
-                self.drawing = False
-                if self.current_line:
-                    x1, y1, x2, y2 = self.current_line
-                    # Only add if it's a valid line (not just a click)
-                    if math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2) > 10:
-                        new_line = Line(x1, y1, x2, y2, f"Line {len(self.lines) + 1}")
-                        self.lines.append(new_line)
-                    self.current_line = None
-                    self.update()
-            elif self.dragging:
-                # Finish dragging
-                self.dragging = False
-                self.drag_point = None
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-
-        # Draw existing lines
-        for line in self.lines:
-            # Set color and width based on selection
-            pen_width = a = 3 if line.is_selected else 2
-            painter.setPen(QPen(line.color, pen_width))
-
-            # Draw the line
-            painter.drawLine(line.x1, line.y1, line.x2, line.y2)
-
-            # Draw endpoints
-            painter.setBrush(line.color)
-            painter.drawEllipse(line.x1 - 4, line.y1 - 4, 8, 8)
-            painter.drawEllipse(line.x2 - 4, line.y2 - 4, 8, 8)
-
-            # Draw line name and count
-            text_x = (line.x1 + line.x2) // 2
-            text_y = (line.y1 + line.y2) // 2
-
-            # Draw background for text
-            text = f"{line.name}: {line.count}"
-            font_metrics = painter.fontMetrics()
-            text_width = font_metrics.horizontalAdvance(text)
-            text_height = font_metrics.height()
-
-            painter.fillRect(text_x - 2, text_y - text_height, text_width + 4, text_height + 2,
-                             QColor(255, 255, 255, 180))
-
-            painter.drawText(text_x, text_y, text)
-
-        # Draw line being created
-        if self.drawing and self.current_line:
-            painter.setPen(QPen(Qt.red, 2))
-            painter.drawLine(self.current_line[0], self.current_line[1],
-                             self.current_line[2], self.current_line[3])
 
 
 class CropRectangle(QWidget):
@@ -882,7 +677,7 @@ class VideoPlayerApp(QMainWindow):
 
             # Use the built-in tracker with the track method - this is the key change
             # The track method enables object tracking and assigns IDs
-            results = self.model.track(frame_copy, persist=True, conf=0.3,iou=0.5, tracker='bytetrack.yaml')
+            results = self.model.track(frame_copy, persist=True, conf=0.3, iou=0.5, tracker='bytetrack.yaml')
 
             if results and hasattr(results[0], 'boxes'):
                 boxes = results[0].boxes
